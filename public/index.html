@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat de la clase</title>
+
+<style>
+*{box-sizing:border-box;}
+
+body{
+font-family: Arial, sans-serif;
+background: linear-gradient(135deg,#6a11cb,#2575fc);
+height:100vh;
+display:flex;
+justify-content:center;
+align-items:center;
+margin:0;
+}
+
+#chat{
+width:420px;
+max-width:100%;
+height:600px;
+max-height:100vh;
+background:white;
+border-radius:15px;
+box-shadow:0 10px 30px rgba(0,0,0,0.2);
+display:flex;
+flex-direction:column;
+overflow:hidden;
+}
+
+#header{
+background:#2575fc;
+color:white;
+padding:15px;
+font-size:18px;
+display:flex;
+justify-content:space-between;
+align-items:center;
+}
+
+#estado{font-size:12px;}
+
+#nombre{
+border:none;
+border-bottom:1px solid #ccc;
+padding:10px;
+width:100%;
+outline:none;
+}
+
+#mensajes{
+flex:1;
+padding:15px;
+overflow-y:auto;
+background:#f4f6fb;
+}
+
+.mensaje{
+display:flex;
+margin-bottom:10px;
+}
+
+.mensaje.propio{
+flex-direction:row-reverse;
+}
+
+.avatar{
+width:35px;
+height:35px;
+flex-shrink:0;
+border-radius:50%;
+color:white;
+display:flex;
+align-items:center;
+justify-content:center;
+margin-right:10px;
+font-weight:bold;
+}
+
+.mensaje.propio .avatar{
+margin-right:0;
+margin-left:10px;
+}
+
+.burbuja{
+background:white;
+padding:8px 12px;
+border-radius:10px;
+box-shadow:0 2px 5px rgba(0,0,0,0.1);
+max-width:250px;
+word-wrap:break-word;
+overflow-wrap:anywhere;
+}
+
+.mensaje.propio .burbuja{
+background:#dce9ff;
+}
+
+.nombre{
+font-size:12px;
+font-weight:bold;
+color:#555;
+}
+
+.hora{
+font-size:10px;
+color:#999;
+margin-left:5px;
+font-weight:normal;
+}
+
+#input-area{
+display:flex;
+padding:10px;
+border-top:1px solid #ddd;
+}
+
+#mensaje{
+flex:1;
+padding:8px;
+border-radius:8px;
+border:1px solid #ccc;
+}
+
+button{
+margin-left:5px;
+padding:8px 15px;
+border:none;
+background:#2575fc;
+color:white;
+border-radius:8px;
+cursor:pointer;
+}
+
+button:hover{background:#1b5fd1;}
+button:disabled{background:#9db8e8;cursor:default;}
+
+</style>
+</head>
+
+<body>
+
+<div id="chat">
+
+<div id="header">
+<span>💬 Chat de la clase</span>
+<span id="estado">● Conectando...</span>
+</div>
+
+<input id="nombre" placeholder="Tu nombre" maxlength="30">
+
+<div id="mensajes"></div>
+
+<div id="input-area">
+<input id="mensaje" placeholder="Escribe un mensaje" maxlength="500" autocomplete="off">
+<button id="btn" onclick="enviar()">Enviar</button>
+</div>
+
+</div>
+
+<script>
+
+// Misma URL desde la que se sirve la página: funciona en local, Azure, AWS, Render, etc.
+// (antes estaba fija a una URL de Azure que dejaba de responder y rompía el envío)
+const API = "";
+
+const contenedor = document.getElementById("mensajes");
+const inputNombre = document.getElementById("nombre");
+const inputMensaje = document.getElementById("mensaje");
+const btn = document.getElementById("btn");
+const estado = document.getElementById("estado");
+
+let ultimoId = 0;
+
+// Recordar el nombre del usuario
+inputNombre.value = localStorage.getItem("chatNombre") || "";
+inputNombre.addEventListener("input", () => {
+    localStorage.setItem("chatNombre", inputNombre.value);
+});
+
+// Color de avatar según el nombre
+function colorDe(nombre){
+    let h = 0;
+    for (const c of nombre) h = (h * 31 + c.charCodeAt(0)) % 360;
+    return `hsl(${h},60%,45%)`;
+}
+
+function setEstado(ok){
+    estado.textContent = ok ? "● En línea" : "● Sin conexión";
+    estado.style.color = ok ? "#9dffb0" : "#ffb3b3";
+}
+
+function pintar(m){
+    const propio = m.usuario === inputNombre.value.trim();
+
+    const fila = document.createElement("div");
+    fila.className = "mensaje" + (propio ? " propio" : "");
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.style.background = colorDe(m.usuario);
+    avatar.textContent = m.usuario.charAt(0).toUpperCase();
+
+    const burbuja = document.createElement("div");
+    burbuja.className = "burbuja";
+
+    const nombre = document.createElement("div");
+    nombre.className = "nombre";
+    nombre.textContent = m.usuario;
+
+    const hora = document.createElement("span");
+    hora.className = "hora";
+    hora.textContent = new Date(m.fecha).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+    nombre.appendChild(hora);
+
+    const texto = document.createElement("div");
+    texto.textContent = m.mensaje;   // textContent evita inyección de HTML (XSS)
+
+    burbuja.appendChild(nombre);
+    burbuja.appendChild(texto);
+    fila.appendChild(avatar);
+    fila.appendChild(burbuja);
+    contenedor.appendChild(fila);
+}
+
+// Solo pide y agrega los mensajes nuevos (no repinta todo cada segundo)
+async function cargarMensajes(){
+    try{
+        const res = await fetch(`${API}/mensajes?desde=${ultimoId}`);
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        setEstado(true);
+        if(data.length === 0) return;
+
+        const abajo = contenedor.scrollHeight - contenedor.scrollTop - contenedor.clientHeight < 60;
+
+        data.forEach(m => {
+            pintar(m);
+            ultimoId = Math.max(ultimoId, m.id);
+        });
+
+        if(abajo) contenedor.scrollTop = contenedor.scrollHeight;
+    }catch(e){
+        setEstado(false);
+    }
+}
+
+async function enviar(){
+    const usuario = inputNombre.value.trim();
+    const mensaje = inputMensaje.value.trim();
+
+    if(!usuario){
+        alert("Escribe tu nombre primero");
+        inputNombre.focus();
+        return;
+    }
+    if(!mensaje) return;
+
+    btn.disabled = true;
+
+    try{
+        const res = await fetch(`${API}/mensaje`,{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body:JSON.stringify({usuario,mensaje})
+        });
+
+        if(!res.ok) throw new Error("HTTP " + res.status);
+
+        inputMensaje.value = "";
+        await cargarMensajes();
+        contenedor.scrollTop = contenedor.scrollHeight;
+    }catch(e){
+        setEstado(false);
+        alert("No se pudo enviar el mensaje. Intenta de nuevo.");
+    }finally{
+        btn.disabled = false;
+        inputMensaje.focus();
+    }
+}
+
+// Enviar con la tecla Enter
+inputMensaje.addEventListener("keydown", e => {
+    if(e.key === "Enter"){
+        e.preventDefault();
+        enviar();
+    }
+});
+
+cargarMensajes();
+setInterval(cargarMensajes, 2000);
+
+</script>
+
+</body>
+</html>
